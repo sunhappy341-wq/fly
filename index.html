@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>御剑乘风来 - 3D 飞行模拟</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #00ffff;
+            font-family: 'KaiTi', serif;
+            font-size: 24px;
+            text-shadow: 0 0 10px #00ffff;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #speed-lines {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 50%, rgba(0,255,255,0.1) 100%);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">鼠标移动控制方向 | 按住鼠标左键加速<br><span style="font-size:16px; opacity:0.7">除魔天地间</span></div>
+    <div id="speed-lines"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+
+    <script>
+        // 1. 场景初始化
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000510, 0.002); // 仙境迷雾
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 20;
+        camera.position.y = 5;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        document.body.appendChild(renderer.domElement);
+
+        // 2. 创建飞剑 (用简单的几何体组合)
+        const swordGroup = new THREE.Group();
+        
+        // 剑身 (发光核心)
+        const bladeGeo = new THREE.ConeGeometry(0.5, 8, 4);
+        const bladeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 青色光芒
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.rotation.x = Math.PI / 2; // 躺平
+        blade.rotation.y = Math.PI / 4;
+        swordGroup.add(blade);
+
+        // 剑柄
+        const handleGeo = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
+        const handleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const handle = new THREE.Mesh(handleGeo, handleMat);
+        handle.rotation.x = Math.PI / 2;
+        handle.position.z = 5;
+        swordGroup.add(handle);
+
+        // 护手
+        const guardGeo = new THREE.BoxGeometry(2, 0.2, 0.5);
+        const guardMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 1, roughness: 0.2 });
+        const guard = new THREE.Mesh(guardGeo, guardMat);
+        guard.position.z = 4;
+        swordGroup.add(guard);
+
+        scene.add(swordGroup);
+
+        // 3. 创建飞逝的云朵/粒子 (制造速度感)
+        const cloudsGeo = new THREE.BufferGeometry();
+        const cloudCount = 1000;
+        const posArray = new Float32Array(cloudCount * 3);
+        
+        for(let i=0; i < cloudCount * 3; i+=3) {
+            posArray[i] = (Math.random() - 0.5) * 200; // x
+            posArray[i+1] = (Math.random() - 0.5) * 100; // y
+            posArray[i+2] = (Math.random() - 0.5) * 400 - 100; // z
+        }
+        cloudsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const cloudMat = new THREE.PointsMaterial({
+            size: 0.5,
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.6
+        });
+        const starField = new THREE.Points(cloudsGeo, cloudMat);
+        scene.add(starField);
+
+        // 4. 灯光
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0, 10, 5);
+        scene.add(dirLight);
+        
+        // 剑身点光源
+        const swordLight = new THREE.PointLight(0x00ffff, 2, 20);
+        swordGroup.add(swordLight);
+
+        // 5. 后期处理 (辉光特效 Bloom)
+        const composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.5, // 强度
+            0.4, // 半径
+            0.85 // 阈值
+        );
+        composer.addPass(bloomPass);
+
+        // 6. 控制逻辑
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+        let speed = 2; // 基础速度
+
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX - window.innerWidth / 2) * 0.1;
+            mouseY = (event.clientY - window.innerHeight / 2) * 0.1;
+        });
+
+        // 鼠标按下加速
+        let isSpeeding = false;
+        document.addEventListener('mousedown', () => { isSpeeding = true; });
+        document.addEventListener('mouseup', () => { isSpeeding = false; });
+        document.addEventListener('touchstart', () => { isSpeeding = true; });
+        document.addEventListener('touchend', () => { isSpeeding = false; });
+
+        // 7. 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 剑的移动 (平滑跟随鼠标)
+            targetX = mouseX;
+            targetY = -mouseY; // Y轴反转，符合飞行习惯
+            
+            swordGroup.position.x += (targetX - swordGroup.position.x) * 0.05;
+            swordGroup.position.y += (targetY - swordGroup.position.y) * 0.05;
+
+            // 剑的旋转 (根据移动方向倾斜，更有动感)
+            swordGroup.rotation.z = -(targetX - swordGroup.position.x) * 0.1;
+            swordGroup.rotation.x = (targetY - swordGroup.position.y) * 0.05;
+
+            // 粒子向后飞逝 (模拟前进)
+            const positions = starField.geometry.attributes.position.array;
+            let currentSpeed = isSpeeding ? 8 : 2; // 加速时速度变快
+            
+            // 视觉抖动 (加速时震动)
+            if(isSpeeding) {
+                camera.position.x = (Math.random() - 0.5) * 0.1;
+                camera.position.y = 5 + (Math.random() - 0.5) * 0.1;
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 5;
+            }
+
+            for(let i=2; i < cloudCount * 3; i+=3) {
+                positions[i] += currentSpeed;
+                if(positions[i] > 20) {
+                    positions[i] = -400; // 飞到屏幕后面就回到远处
+                }
+            }
+            starField.geometry.attributes.position.needsUpdate = true;
+
+            // 剑身光芒闪烁
+            bladeMat.opacity = 0.8 + Math.random() * 0.2;
+
+            // 渲染
+            composer.render();
+        }
+
+        animate();
+
+        // 窗口大小调整
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
