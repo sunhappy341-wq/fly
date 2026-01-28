@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>真·以气御剑 (摄像头版)</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <title>真·以气御剑 (国内加速版)</title>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://npm.elemecdn.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <script src="https://npm.elemecdn.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
 
     <style>
         body { margin: 0; overflow: hidden; background: #000; }
@@ -31,7 +32,6 @@
             pointer-events: none;
             z-index: 10;
         }
-        /* 摄像头预览窗口 */
         #webcam-container {
             position: absolute;
             bottom: 20px;
@@ -43,7 +43,7 @@
             overflow: hidden;
             z-index: 20;
             background: rgba(0,0,0,0.5);
-            transform: scaleX(-1); /* 镜像翻转，让操作更直观 */
+            transform: scaleX(-1);
         }
         #input_video {
             width: 100%;
@@ -63,7 +63,7 @@
     </style>
 </head>
 <body>
-    <div id="loading">正在连接灵界 (加载摄像头)...</div>
+    <div id="loading">正在连接灵界 (加载国内镜像)...</div>
     <div id="info">伸出食指控制方向 | 拇指食指捏合加速<br><span style="font-size:16px; opacity:0.7">剑随心动</span></div>
     
     <div id="webcam-container">
@@ -71,7 +71,6 @@
     </div>
 
     <script>
-        // ================= Three.js 场景部分 (飞剑逻辑) =================
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x000510, 0.002);
 
@@ -84,7 +83,6 @@
         renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
-        // 创建飞剑
         const swordGroup = new THREE.Group();
         const bladeGeo = new THREE.ConeGeometry(0.5, 8, 4);
         const bladeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
@@ -108,7 +106,6 @@
 
         scene.add(swordGroup);
 
-        // 粒子系统
         const cloudsGeo = new THREE.BufferGeometry();
         const cloudCount = 1000;
         const posArray = new Float32Array(cloudCount * 3);
@@ -122,7 +119,6 @@
         const starField = new THREE.Points(cloudsGeo, cloudMat);
         scene.add(starField);
 
-        // 灯光与后期
         const ambientLight = new THREE.AmbientLight(0x404040);
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -135,45 +131,99 @@
         composer.addPass(new THREE.RenderPass(scene, camera));
         composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85));
 
-        // ================= AI 手部识别逻辑 (MediaPipe) =================
         const videoElement = document.getElementById('input_video');
-        let handX = 0; // 手指的X位置 (-1 到 1)
-        let handY = 0; // 手指的Y位置 (-1 到 1)
-        let isPinching = false; // 是否捏合加速
+        let handX = 0;
+        let handY = 0;
+        let isPinching = false;
 
         function onResults(results) {
             document.getElementById('loading').style.display = 'none';
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                
-                // 1. 获取食指指尖 (Index Finger Tip - 索引 8)
                 const indexFinger = landmarks[8];
                 const thumbFinger = landmarks[4];
 
-                // 2. 映射坐标 (摄像头坐标是 0~1，我们需要映射到屏幕范围)
-                // 注意：摄像头是镜像的，所以 X 要反转
-                handX = (1 - indexFinger.x) * 2 - 1; // 映射到 -1 ~ 1
-                handY = -(indexFinger.y * 2 - 1);    // Y轴反转，映射到 -1 ~ 1
+                handX = (1 - indexFinger.x) * 2 - 1;
+                handY = -(indexFinger.y * 2 - 1);
 
-                // 3. 计算食指和拇指的距离 (判断是否捏合)
                 const distance = Math.sqrt(
                     Math.pow(indexFinger.x - thumbFinger.x, 2) + 
                     Math.pow(indexFinger.y - thumbFinger.y, 2)
                 );
-
-                // 如果距离小于 0.05，认为是捏合手势
                 isPinching = distance < 0.05;
                 
-                // 视觉反馈：如果捏合，飞剑光芒变红
                 if(isPinching) {
-                    bladeMat.color.setHex(0xff0000); // 红色暴走模式
+                    bladeMat.color.setHex(0xff0000);
                     swordLight.color.setHex(0xff0000);
                 } else {
-                    bladeMat.color.setHex(0x00ffff); // 青色正常模式
+                    bladeMat.color.setHex(0x00ffff);
                     swordLight.color.setHex(0x00ffff);
                 }
             }
         }
 
-        const hands = new Hands({
+        // ⬇️⬇️⬇️ 重点修改：这里也指定了使用饿了么镜像源下载模型文件 ⬇️⬇️⬇️
+        const hands = new Hands({locateFile: (file) => {
+            return `https://npm.elemecdn.com/@mediapipe/hands/${file}`;
+        }});
+        
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 320,
+            height: 240
+        });
+        cameraUtils.start();
+
+        let currentX = 0;
+        let currentY = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            let targetX = handX * 15;
+            let targetY = handY * 10;
+            currentX += (targetX - currentX) * 0.1;
+            currentY += (targetY - currentY) * 0.1;
+            swordGroup.position.x = currentX;
+            swordGroup.position.y = currentY;
+            swordGroup.rotation.z = -currentX * 0.05;
+            swordGroup.rotation.x = currentY * 0.05;
+
+            const positions = starField.geometry.attributes.position.array;
+            let currentSpeed = isPinching ? 10 : 2;
+            if(isPinching) {
+                camera.position.x = (Math.random() - 0.5) * 0.2;
+                camera.position.y = 5 + (Math.random() - 0.5) * 0.2;
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 5;
+            }
+            for(let i=2; i < cloudCount * 3; i+=3) {
+                positions[i] += currentSpeed;
+                if(positions[i] > 20) positions[i] = -400;
+            }
+            starField.geometry.attributes.position.needsUpdate = true;
+            composer.render();
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
