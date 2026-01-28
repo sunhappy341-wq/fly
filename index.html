@@ -3,221 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>真·以气御剑 (国内加速版)</title>
-    
-    <script src="https://npm.elemecdn.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://npm.elemecdn.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-    
-    <script src="https://npm.elemecdn.com/three@0.128.0/build/three.min.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://npm.elemecdn.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-
+    <title>赛博无人机 (强袭模式)</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; }
-        #info {
-            position: absolute;
-            top: 20px;
-            width: 100%;
-            text-align: center;
-            color: #00ffff;
-            font-family: 'KaiTi', serif;
-            font-size: 24px;
-            text-shadow: 0 0 10px #00ffff;
-            pointer-events: none;
-            z-index: 10;
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 10;
         }
-        #webcam-container {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 240px;
-            height: 180px;
-            border: 2px solid #00ffff;
-            border-radius: 10px;
-            overflow: hidden;
-            z-index: 20;
-            background: rgba(0,0,0,0.5);
-            transform: scaleX(-1);
+        #hud-header {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            color: #00f7ff; font-family: 'Segoe UI', sans-serif; letter-spacing: 4px;
+            text-shadow: 0 0 20px rgba(0, 247, 255, 1);
+            font-weight: 800; font-size: 24px;
         }
-        #input_video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        #hud-sub { font-size: 14px; opacity: 0.8; margin-top: 10px; font-weight: 400; letter-spacing: 1px;}
+        
+        /* 暴走特效遮罩 */
+        #boost-mask {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 30%, rgba(255, 0, 50, 0.3) 100%);
+            opacity: 0; transition: opacity 0.1s; mix-blend-mode: screen; pointer-events: none;
         }
-        #loading {
-            position: absolute;
-            top: 50%; left: 50%;
+        /* 准星 */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
             transform: translate(-50%, -50%);
-            color: #00ffff;
-            font-size: 30px;
-            font-family: sans-serif;
-            text-shadow: 0 0 20px #00ffff;
-            z-index: 100;
+            border: 1px solid rgba(0, 247, 255, 0.3); border-radius: 50%;
+            pointer-events: none;
+        }
+        #crosshair::after {
+            content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+            background: #00f7ff; transform: translate(-50%, -50%); border-radius: 50%;
+            box-shadow: 0 0 10px #00f7ff;
         }
     </style>
 </head>
 <body>
-    <div id="loading">正在连接灵界 (加载国内镜像)...</div>
-    <div id="info">伸出食指控制方向 | 拇指食指捏合加速<br><span style="font-size:16px; opacity:0.7">剑随心动</span></div>
-    
-    <div id="webcam-container">
-        <video id="input_video"></video>
+    <div id="boost-mask"></div>
+    <div id="ui-layer">
+        <div id="hud-header">
+            CYBER DRONE // X-7
+            <div id="hud-sub">MOUSE TO FLY  |  CLICK TO BOOST</div>
+        </div>
+        <div id="crosshair"></div>
     </div>
 
-    <script>
+    <script type="module">
+        import * as THREE from 'https://npm.elemecdn.com/three@0.128.0/build/three.module.js';
+        import { EffectComposer } from 'https://npm.elemecdn.com/three@0.128.0/examples/jsm/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'https://npm.elemecdn.com/three@0.128.0/examples/jsm/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'https://npm.elemecdn.com/three@0.128.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+
+        // --- 1. 电影级场景 ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000510, 0.002);
+        scene.fog = new THREE.FogExp2(0x020205, 0.025); // 深邃黑雾
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 20;
-        camera.position.y = 5;
+        camera.position.set(0, 1.5, 5);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; // 电影感色调
+        renderer.toneMappingExposure = 1.2;
         document.body.appendChild(renderer.domElement);
 
-        const swordGroup = new THREE.Group();
-        const bladeGeo = new THREE.ConeGeometry(0.5, 8, 4);
-        const bladeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-        const blade = new THREE.Mesh(bladeGeo, bladeMat);
-        blade.rotation.x = Math.PI / 2;
-        blade.rotation.y = Math.PI / 4;
-        swordGroup.add(blade);
-
-        const handleGeo = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
-        const handleMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-        const handle = new THREE.Mesh(handleGeo, handleMat);
-        handle.rotation.x = Math.PI / 2;
-        handle.position.z = 5;
-        swordGroup.add(handle);
-
-        const guardGeo = new THREE.BoxGeometry(2, 0.2, 0.5);
-        const guardMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 1, roughness: 0.2 });
-        const guard = new THREE.Mesh(guardGeo, guardMat);
-        guard.position.z = 4;
-        swordGroup.add(guard);
-
-        scene.add(swordGroup);
-
-        const cloudsGeo = new THREE.BufferGeometry();
-        const cloudCount = 1000;
-        const posArray = new Float32Array(cloudCount * 3);
-        for(let i=0; i < cloudCount * 3; i+=3) {
-            posArray[i] = (Math.random() - 0.5) * 200;
-            posArray[i+1] = (Math.random() - 0.5) * 100;
-            posArray[i+2] = (Math.random() - 0.5) * 400 - 100;
-        }
-        cloudsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-        const cloudMat = new THREE.PointsMaterial({ size: 0.5, color: 0xffffff, transparent: true, opacity: 0.6 });
-        const starField = new THREE.Points(cloudsGeo, cloudMat);
-        scene.add(starField);
-
-        const ambientLight = new THREE.AmbientLight(0x404040);
-        scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-        dirLight.position.set(0, 10, 5);
-        scene.add(dirLight);
-        const swordLight = new THREE.PointLight(0x00ffff, 2, 20);
-        swordGroup.add(swordLight);
-
-        const composer = new THREE.EffectComposer(renderer);
-        composer.addPass(new THREE.RenderPass(scene, camera));
-        composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85));
-
-        const videoElement = document.getElementById('input_video');
-        let handX = 0;
-        let handY = 0;
-        let isPinching = false;
-
-        function onResults(results) {
-            document.getElementById('loading').style.display = 'none';
-
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                const indexFinger = landmarks[8];
-                const thumbFinger = landmarks[4];
-
-                handX = (1 - indexFinger.x) * 2 - 1;
-                handY = -(indexFinger.y * 2 - 1);
-
-                const distance = Math.sqrt(
-                    Math.pow(indexFinger.x - thumbFinger.x, 2) + 
-                    Math.pow(indexFinger.y - thumbFinger.y, 2)
-                );
-                isPinching = distance < 0.05;
-                
-                if(isPinching) {
-                    bladeMat.color.setHex(0xff0000);
-                    swordLight.color.setHex(0xff0000);
-                } else {
-                    bladeMat.color.setHex(0x00ffff);
-                    swordLight.color.setHex(0x00ffff);
-                }
-            }
-        }
-
-        // ⬇️⬇️⬇️ 重点修改：这里也指定了使用饿了么镜像源下载模型文件 ⬇️⬇️⬇️
-        const hands = new Hands({locateFile: (file) => {
-            return `https://npm.elemecdn.com/@mediapipe/hands/${file}`;
-        }});
+        // --- 2. 帅气的无人机建模 ---
+        const drone = new THREE.Group();
         
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-        hands.onResults(onResults);
+        // 材质库
+        const carbonMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.8 });
+        const armorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.2, metalness: 1.0 });
+        const lightMat = new THREE.MeshBasicMaterial({ color: 0x00f7ff }); // 核心蓝光
+        const bladeMat = new THREE.MeshStandardMaterial({ color: 0x555555, transparent:true, opacity:0.5 });
 
-        const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 320,
-            height: 240
-        });
-        cameraUtils.start();
+        // 机身主体
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 1.2), armorMat);
+        drone.add(body);
+        
+        // 顶部发光引擎盖
+        const topCover = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.8), carbonMat);
+        drone.add(topCover);
+        const glowStrip = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.6), lightMat);
+        glowStrip.rotation.x = -Math.PI/2;
+        glowStrip.position.y = 0.18;
+        drone.add(glowStrip);
 
-        let currentX = 0;
-        let currentY = 0;
+        // 复杂的机臂结构
+        const arms = [];
+        const props = [];
+        [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(pos => {
+            const arm = new THREE.Group();
+            
+            // 碳纤维臂
+            const rod = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 1.5), carbonMat);
+            rod.position.set(pos[0]*0.6, 0, pos[1]*0.6);
+            rod.rotation.y = Math.atan2(pos[1], pos[0]);
+            arm.add(rod);
+
+            // 电机座
+            const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.2, 16), armorMat);
+            motor.position.set(pos[0]*1.2, 0.1, pos[1]*1.2);
+            arm.add(motor);
+
+            // 灯环
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 8, 24), lightMat);
+            ring.rotation.x = Math.PI/2;
+            ring.position.copy(motor.position);
+            ring.position.y += 0.05;
+            arm.add(ring);
+
+            // 螺旋桨
+            const prop = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.02, 0.15), bladeMat);
+            prop.position.set(pos[0]*1.2, 0.25, pos[1]*1.2);
+            props.push(prop);
+            arm.add(prop);
+
+            drone.add(arm);
+        });
+
+        // 底部聚光灯
+        const spotLight = new THREE.SpotLight(0x00f7ff, 10, 30, 0.5, 0.5, 1);
+        spotLight.position.set(0, -0.2, 0);
+        spotLight.target.position.set(0, -5, 2);
+        drone.add(spotLight);
+        drone.add(spotLight.target);
+
+        scene.add(drone);
+
+        // --- 3. 无尽赛博城市 ---
+        const city = new THREE.Group();
+        // 使用 InstancedMesh 极大优化性能，生成数千个建筑
+        const bldgGeo = new THREE.BoxGeometry(1, 1, 1);
+        const bldgMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.1, metalness: 0.6 });
+        
+        for(let i=0; i<150; i++) {
+            const h = Math.random() * 15 + 5;
+            const mesh = new THREE.Mesh(bldgGeo, bldgMat);
+            mesh.position.set(
+                (Math.random()-0.5) * 120,
+                -h/2 - 3,
+                (Math.random()-0.5) * 120 - 30
+            );
+            mesh.scale.set(Math.random()*4+2, h, Math.random()*4+2);
+            
+            // 窗户光
+            if(Math.random() > 0.6) {
+                const win = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: Math.random()>0.8?0xff0055:0x00aaff }));
+                win.position.copy(mesh.position);
+                win.position.y = Math.random() * 5 - 2;
+                win.position.z += mesh.scale.z/2 + 0.05;
+                win.scale.set(0.5, 0.5, 1);
+                city.add(win);
+            }
+            city.add(mesh);
+        }
+        scene.add(city);
+
+        // --- 4. 灯光与特效 ---
+        const ambient = new THREE.AmbientLight(0x111111);
+        scene.add(ambient);
+        const moon = new THREE.DirectionalLight(0x222255, 2);
+        moon.position.set(0, 20, 10);
+        scene.add(moon);
+
+        // 辉光 (Bloom)
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 2.0, 0.4, 0.85);
+        composer.addPass(bloom);
+
+        // --- 5. 操控逻辑 (鼠标/触摸) ---
+        let targetX = 0, targetY = 0;
+        let isBoosting = false;
+
+        function handleInput(x, y, boosting) {
+            // 映射 0-1 到 -1-1
+            targetX = (x / window.innerWidth - 0.5) * 16;
+            targetY = -(y / window.innerHeight - 0.5) * 10 + 2;
+            isBoosting = boosting;
+        }
+
+        document.addEventListener('mousemove', e => handleInput(e.clientX, e.clientY, e.buttons === 1));
+        document.addEventListener('touchmove', e => {
+            e.preventDefault();
+            handleInput(e.touches[0].clientX, e.touches[0].clientY, true);
+        }, {passive:false});
+        document.addEventListener('touchend', () => isBoosting = false);
+        document.addEventListener('mousedown', () => isBoosting = true);
+        document.addEventListener('mouseup', () => isBoosting = false);
+
+
+        // --- 6. 动画循环 ---
+        let currentX = 0, currentY = 0;
+        let speed = 0.5;
 
         function animate() {
             requestAnimationFrame(animate);
-            let targetX = handX * 15;
-            let targetY = handY * 10;
-            currentX += (targetX - currentX) * 0.1;
-            currentY += (targetY - currentY) * 0.1;
-            swordGroup.position.x = currentX;
-            swordGroup.position.y = currentY;
-            swordGroup.rotation.z = -currentX * 0.05;
-            swordGroup.rotation.x = currentY * 0.05;
 
-            const positions = starField.geometry.attributes.position.array;
-            let currentSpeed = isPinching ? 10 : 2;
-            if(isPinching) {
-                camera.position.x = (Math.random() - 0.5) * 0.2;
-                camera.position.y = 5 + (Math.random() - 0.5) * 0.2;
+            // 物理平滑移动
+            currentX += (targetX - currentX) * 0.08;
+            currentY += (targetY - currentY) * 0.08;
+            drone.position.x = currentX;
+            drone.position.y = currentY;
+
+            // 姿态反馈 (侧倾)
+            const tiltX = (targetY - currentY) * 0.2;
+            const tiltZ = -(targetX - currentX) * 0.3;
+            drone.rotation.x = tiltX;
+            drone.rotation.z = tiltZ;
+
+            // 暴走模式特效
+            if(isBoosting) {
+                speed = 2.5; // 极速
+                lightMat.color.setHex(0xff0000); // 红光
+                spotLight.color.setHex(0xff0000);
+                document.getElementById('boost-mask').style.opacity = 1;
+                // 镜头震动
+                camera.position.x = (Math.random()-0.5)*0.15;
+                camera.position.y = 1.5 + (Math.random()-0.5)*0.15;
             } else {
-                camera.position.x = 0;
-                camera.position.y = 5;
+                speed = 0.4; // 巡航
+                lightMat.color.setHex(0x00f7ff); // 蓝光
+                spotLight.color.setHex(0x00f7ff);
+                document.getElementById('boost-mask').style.opacity = 0;
+                camera.position.x = 0; camera.position.y = 1.5;
             }
-            for(let i=2; i < cloudCount * 3; i+=3) {
-                positions[i] += currentSpeed;
-                if(positions[i] > 20) positions[i] = -400;
-            }
-            starField.geometry.attributes.position.needsUpdate = true;
+
+            // 螺旋桨旋转
+            props.forEach((p, i) => p.rotation.y += isBoosting ? 1.5 : 0.6 * (i%2?1:-1));
+
+            // 城市无限后退
+            city.position.z += speed;
+            if(city.position.z > 20) city.position.z = 0;
+
             composer.render();
         }
-
         animate();
 
+        // 窗口适配
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
